@@ -1,11 +1,22 @@
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from datetime import datetime
-from pathlib import Path
 from typing import Literal
 
 from ..config import CameraControllerSettings
 from ..models import CameraInfo, RecordingSession
+
+
+@dataclass(slots=True)
+class CameraSchedule:
+    camera_id: str
+    desired_start: datetime
+    desired_stop: datetime
+    command_status: str = "pending"
+    started_at: datetime | None = None
+    stopped_at: datetime | None = None
+    notes: list[str] = field(default_factory=list)
 
 
 class CameraSessionOrchestrator:
@@ -26,7 +37,7 @@ class CameraSessionOrchestrator:
             camera_ids=camera_ids,
             started_at=datetime.utcnow(),
             status="active",
-            local_root=Path(self.settings.ingest_root) / session_id,
+            local_root=None,
         )
         self.sessions[session_id] = session
         return session
@@ -37,7 +48,7 @@ class CameraSessionOrchestrator:
         session.status = "stopped"
         return session
 
-    def mark_failed(self, session_id: str, reason: str) -> RecordingSession:
+    def mark_failed(self, session_id: str) -> RecordingSession:
         session = self.sessions[session_id]
         session.status = "failed"
         return session
