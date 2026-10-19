@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "camera-controller"
+version = "0.1.0"
+description = "Headless Windows background service for Canon camera control and synchronized media ingest"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "BoondockMark" }]
+license = { text = "MIT" }
+dependencies = [
+  "aiofiles>=23.2",
+  "httpx>=0.27.0",
+  "pydantic>=2.7.0",
+  "python-dotenv>=1.0.1",
+  "zeroconf>=0.132.2",
+]
+
+[project.optional-dependencies]
+bluetooth = [
+  "bleak>=0.21.1",
+]
+
+dev = [
+  "pytest>=8.0.0",
+  "ruff>=0.5.0",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
