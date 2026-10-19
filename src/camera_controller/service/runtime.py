@@ -15,3 +15,8 @@ class CameraRuntime:
 
     def start(self) -> None:
         self.root.mkdir(parents=True, exist_ok=True)
+
+    def session_root(self, session_id: str) -> Path:
+        session_path = self.root / session_id
+        session_path.mkdir(parents=True, exist_ok=True)
+        return session_path

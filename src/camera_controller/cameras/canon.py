@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import httpx
-
 from ..models import CameraState
 from .base import CameraControllerProtocol
 
@@ -17,14 +15,14 @@ class CanonCameraController(CameraControllerProtocol):
         self.api_root = api_root or f"http://{ip_address}/ccapi/ver100"
         self.connected = False
         self._last_state = CameraState()
-        self._client = httpx.Client(timeout=timeout)
+        self._client = __import__("httpx").Client(timeout=timeout)
 
     def connect(self) -> bool:
         try:
             response = self._client.get(self.api_root.rstrip("/") + "/", follow_redirects=True)
             self.connected = response.status_code < 500
             return self.connected
-        except (httpx.HTTPError, OSError):
+        except (__import__("httpx").HTTPError, OSError):
             self.connected = False
             return False
 
@@ -35,34 +33,15 @@ class CanonCameraController(CameraControllerProtocol):
     def get_state(self) -> CameraState:
         return self._last_state
 
-    def set_state(
-        self,
-        *,
-        shutter_speed: str | None = None,
-        iso: int | None = None,
-        aperture: str | None = None,
-        exposure_mode: str | None = None,
-    ) -> bool:
+    def set_state(self, *, shutter_speed: str | None = None, iso: int | None = None, aperture: str | None = None, exposure_mode: str | None = None) -> bool:
         if not self.connected:
             return False
-
-        payload = {
-            "shutter_speed": shutter_speed,
-            "iso": iso,
-            "aperture": aperture,
-            "exposure_mode": exposure_mode,
-        }
+        payload = {"shutter_speed": shutter_speed, "iso": iso, "aperture": aperture, "exposure_mode": exposure_mode}
         payload = {key: value for key, value in payload.items() if value is not None}
-
         try:
-            response = self._client.post(
-                self.api_root.rstrip("/") + "/camera/control",
-                json=payload,
-                follow_redirects=True,
-            )
-        except (httpx.HTTPError, OSError):
+            response = self._client.post(self.api_root.rstrip("/") + "/camera/control", json=payload, follow_redirects=True)
+        except (__import__("httpx").HTTPError, OSError):
             return False
-
         if response.status_code in {200, 202, 204}:
             self._last_state.shutter_speed = shutter_speed or self._last_state.shutter_speed
             self._last_state.iso = iso if iso is not None else self._last_state.iso
@@ -75,12 +54,8 @@ class CanonCameraController(CameraControllerProtocol):
         if not self.connected:
             return False
         try:
-            response = self._client.post(
-                self.api_root.rstrip("/") + "/camera/recording",
-                json={"recording": True},
-                follow_redirects=True,
-            )
-        except (httpx.HTTPError, OSError):
+            response = self._client.post(self.api_root.rstrip("/") + "/camera/recording", json={"recording": True}, follow_redirects=True)
+        except (__import__("httpx").HTTPError, OSError):
             return False
         if response.status_code in {200, 202, 204}:
             self._last_state.recording = True
@@ -91,12 +66,8 @@ class CanonCameraController(CameraControllerProtocol):
         if not self.connected:
             return False
         try:
-            response = self._client.post(
-                self.api_root.rstrip("/") + "/camera/recording",
-                json={"recording": False},
-                follow_redirects=True,
-            )
-        except (httpx.HTTPError, OSError):
+            response = self._client.post(self.api_root.rstrip("/") + "/camera/recording", json={"recording": False}, follow_redirects=True)
+        except (__import__("httpx").HTTPError, OSError):
             return False
         if response.status_code in {200, 202, 204}:
             self._last_state.recording = False
@@ -116,6 +87,6 @@ class CanonCameraController(CameraControllerProtocol):
                 with destination.open("wb") as fh:
                     for chunk in response.iter_bytes():
                         fh.write(chunk)
-        except (httpx.HTTPError, OSError):
+        except (__import__("httpx").HTTPError, OSError):
             raise
         return destination
