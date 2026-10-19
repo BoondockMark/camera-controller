@@ -1,37 +1,21 @@
-"""Service orchestration for synchronized capture sessions."""
-
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Iterable
+from pathlib import Path
 
 from ..config import CameraControllerSettings
-from ..models import CameraInfo, RecordingSession
+from ..models import CameraInfo
 
 
-class CameraSessionOrchestrator:
-    """Coordinates camera control, sync timing, and capture workflow."""
+class SessionManager:
+    """Thin convenience wrapper around orchestrator logic."""
 
     def __init__(self, settings: CameraControllerSettings) -> None:
         self.settings = settings
-        self.cameras: dict[str, CameraInfo] = {}
 
-    def register_camera(self, camera: CameraInfo) -> None:
-        self.cameras[camera.ip_address] = camera
+    def build_session_root(self, session_id: str) -> Path:
+        root = Path(self.settings.ingest_root) / session_id
+        root.mkdir(parents=True, exist_ok=True)
+        return root
 
-    def start_session(self, camera_ids: Iterable[str]) -> RecordingSession:
-        session = RecordingSession(
-            session_id=f"session-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}",
-            camera_ids=list(camera_ids),
-            started_at=datetime.utcnow(),
-            status="active",
-        )
-        return session
-
-    def stop_session(self, session: RecordingSession) -> RecordingSession:
-        session.ended_at = datetime.utcnow()
-        session.status = "stopped"
-        return session
-
-    def sync_start(self, session: RecordingSession) -> datetime:
-        return datetime.utcnow()
+    def register_camera(self, camera: CameraInfo) -> CameraInfo:
+        return camera
