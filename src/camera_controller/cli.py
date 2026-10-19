@@ -23,7 +23,6 @@ def build_parser() -> argparse.ArgumentParser:
     session.add_argument("--stop-recording", action="store_true", help="Stop recording on the target camera")
     session.add_argument("--set-shutter", help="Set a shutter value such as 1/60")
     session.add_argument("--set-iso", type=int, help="Set ISO value")
-    session.add_argument("--duration-seconds", type=float, default=5.0, help="Recording duration in seconds")
 
     return parser
 
@@ -31,6 +30,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
+
     settings = CameraControllerSettings(network=args.network, ingest_root=args.ingest_root)
 
     if args.command == "discover":

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from .canon import CanonCameraController
-from .discovery import NetworkCameraDiscovery
-from .identity import CanonDeviceIdentity
+from .identity import CanonDeviceIdentity, NetworkCameraDiscovery
 
 __all__ = ["CanonCameraController", "CanonDeviceIdentity", "NetworkCameraDiscovery"]
