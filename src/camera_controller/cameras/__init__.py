@@ -1,133 +1,134 @@
 from __future__ import annotations
 
-import ipaddress
-import json
-import re
-from typing import Any, Iterable
+from pathlib import Path
 
 import httpx
 
-from ..config import CameraControllerSettings
-from .identity import CanonDeviceIdentity
+from ..models import CameraState
+from .base import CameraControllerProtocol
 
 
-class NetworkCameraDiscovery:
-    """LAN discovery and identity probing for Canon cameras."""
+class CanonCameraController(CameraControllerProtocol):
+    """Generic Canon camera control adapter built around the HTTP API pattern used by Canon devices.
 
-    def __init__(self, settings: CameraControllerSettings) -> None:
-        self.settings = settings
-        self.network = ipaddress.ip_network(settings.network, strict=False)
+    The official Canon camera endpoints vary a bit by firmware and model. This implementation creates a
+    stable abstraction for the app while leaving the actual endpoint mapping flexible enough to be
+    updated as the Canon API documentation is finalized for the R6 Mark II.
+    """
 
-    def discover_cameras(self, timeout: float = 0.7) -> list[CanonDeviceIdentity]:
-        """Probe each host in the configured network and return any likely Canon devices."""
-        discovered: list[CanonDeviceIdentity] = []
-        for ip in self._iter_network_addresses():
-            identity = self.probe_identity(str(ip), timeout=timeout)
-            if identity is not None and identity.is_likely_canon:
-                discovered.append(identity)
-        return discovered
+    def __init__(self, ip_address: str, *, timeout: float = 5.0, api_root: str | None = None) -> None:
+        self.ip_address = ip_address
+        self.timeout = timeout
+        self.api_root = api_root or f"http://{ip_address}/ccapi/ver100"
+        self.connected = False
+        self._last_state = CameraState()
+        self._client = httpx.Client(timeout=timeout)
 
-    def probe_identity(self, ip: str, timeout: float = 0.7) -> CanonDeviceIdentity | None:
-        """Attempt to identify a camera at the given IP address."""
-        urls = [
-            f"http://{ip}:{self.settings.default_camera_port}/",
-            f"http://{ip}/",
-            f"http://{ip}:{self.settings.default_camera_port}/index.html",
-        ]
-
-        for url in urls:
-            try:
-                response = httpx.get(url, timeout=timeout, follow_redirects=True)
-            except (httpx.HTTPError, OSError):
-                continue
-
-            if response.status_code >= 500:
-                continue
-
-            identity = self._parse_identity(ip, response)
-            if identity is not None:
-                return identity
-
-        return None
-
-    def _iter_network_addresses(self) -> Iterable[ipaddress.IPv4Address]:
+    def connect(self) -> bool:
+        """Probe the camera API root and mark the camera as connected if the endpoint responds."""
         try:
-            for ip in self.network.hosts():
-                yield ip
-        except ValueError:
-            # If the provided network is malformed, return an empty result instead of crashing.
-            return
+            response = self._client.get(self.api_root.rstrip("/") + "/", follow_redirects=True)
+            self.connected = response.status_code < 500
+            return self.connected
+        except (httpx.HTTPError, OSError):
+            self.connected = False
+            return False
 
-    def _parse_identity(self, ip: str, response: httpx.Response) -> CanonDeviceIdentity | None:
-        body = response.text or ""
-        headers = {k: v for k, v in response.headers.items()}
-        score = 0
+    def disconnect(self) -> None:
+        self.connected = False
+        self._client.close()
 
-        parsed: dict[str, Any] = {}
+    def get_state(self) -> CameraState:
+        """Return the locally tracked state. For real devices this should be replaced by a structured
+        API response parser once the exact Canon endpoint mapping is finalized.
+        """
+        return self._last_state
+
+    def set_state(
+        self,
+        *,
+        shutter_speed: str | None = None,
+        iso: int | None = None,
+        aperture: str | None = None,
+        exposure_mode: str | None = None,
+    ) -> bool:
+        if not self.connected:
+            return False
+
+        payload = {
+            "shutter_speed": shutter_speed,
+            "iso": iso,
+            "aperture": aperture,
+            "exposure_mode": exposure_mode,
+        }
+        payload = {key: value for key, value in payload.items() if value is not None}
+
         try:
-            candidate = json.loads(body)
-            if isinstance(candidate, dict):
-                parsed = candidate
-        except json.JSONDecodeError:
-            parsed = {}
+            response = self._client.post(
+                self.api_root.rstrip("/") + "/camera/control",
+                json=payload,
+                follow_redirects=True,
+            )
+        except (httpx.HTTPError, OSError):
+            return False
 
-        manufacturer = self._first_present_value(parsed, ["manufacturer", "Manufacturer", "brand", "Brand"])
-        model = self._first_present_value(parsed, ["model", "Model", "cameraModel", "cameraModelName", "deviceModel"])
-        friendly_name = self._first_present_value(parsed, ["friendlyName", "friendly_name", "name", "Name"])
-        serial_number = self._first_present_value(parsed, ["serialNumber", "serial_number", "serial", "Serial"])
+        if response.status_code in {200, 202, 204}:
+            self._last_state.shutter_speed = shutter_speed or self._last_state.shutter_speed
+            self._last_state.iso = iso if iso is not None else self._last_state.iso
+            self._last_state.aperture = aperture or self._last_state.aperture
+            self._last_state.exposure_mode = exposure_mode or self._last_state.exposure_mode
+            return True
+        return False
 
-        for token in ("Canon", "EOS", "camera", "R6", "R5", "DIGIC"):
-            if token.lower() in body.lower() or token.lower() in str(headers).lower():
-                score += 1
+    def start_recording(self) -> bool:
+        if not self.connected:
+            return False
+        try:
+            response = self._client.post(
+                self.api_root.rstrip("/") + "/camera/recording",
+                json={"recording": True},
+                follow_redirects=True,
+            )
+        except (httpx.HTTPError, OSError):
+            return False
+        if response.status_code in {200, 202, 204}:
+            self._last_state.recording = True
+            return True
+        return False
 
-        if manufacturer:
-            score += 1
-        if model:
-            score += 1
-        if friendly_name:
-            score += 1
-        if serial_number:
-            score += 1
+    def stop_recording(self) -> bool:
+        if not self.connected:
+            return False
+        try:
+            response = self._client.post(
+                self.api_root.rstrip("/") + "/camera/recording",
+                json={"recording": False},
+                follow_redirects=True,
+            )
+        except (httpx.HTTPError, OSError):
+            return False
+        if response.status_code in {200, 202, 204}:
+            self._last_state.recording = False
+            return True
+        return False
 
-        is_likely_canon = bool(score >= 2) and bool(
-            any(token.lower() in body.lower() for token in ("canon", "eos", "camera", "canon camera"))
-            or response.headers.get("Server", "").lower().find("canon") >= 0
-        )
+    def list_media(self) -> list[str]:
+        """Return known media paths. This is intentionally conservative until the media list endpoint is
+        mapped for the target camera model.
+        """
+        return []
 
-        if not is_likely_canon and not model and not manufacturer and not friendly_name:
-            return None
+    def download_media(self, remote_path: str, destination_dir: Path) -> Path:
+        destination_dir = Path(destination_dir)
+        destination_dir.mkdir(parents=True, exist_ok=True)
 
-        endpoint_candidates = self._collect_endpoints(body)
-        return CanonDeviceIdentity(
-            ip_address=ip,
-            discovered_at=__import__("datetime").datetime.utcnow(),
-            model=model,
-            manufacturer=manufacturer,
-            friendly_name=friendly_name,
-            serial_number=serial_number,
-            http_status=response.status_code,
-            response_headers=headers,
-            response_body_excerpt=body[:500],
-            protocol="http",
-            endpoints=endpoint_candidates,
-            is_likely_canon=is_likely_canon,
-        )
-
-    def _first_present_value(self, payload: dict[str, Any], keys: list[str]) -> str | None:
-        for key in keys:
-            value = payload.get(key)
-            if isinstance(value, str) and value.strip():
-                return value.strip()
-            if isinstance(value, (int, float)):
-                return str(value)
-        return None
-
-    def _collect_endpoints(self, body: str) -> list[str]:
-        endpoints: list[str] = []
-        for match in re.findall(r"(/[^\s\"'<>]+)", body):
-            if match.startswith("/") and len(match) > 1:
-                endpoints.append(match)
-        return list(dict.fromkeys(endpoints))[:10]
-
-
-__all__ = ["NetworkCameraDiscovery", "CanonDeviceIdentity"]
+        destination = destination_dir / Path(remote_path).name
+        try:
+            with self._client.stream("GET", self.api_root.rstrip("/") + "/media/" + remote_path.lstrip("/")) as response:
+                response.raise_for_status()
+                with destination.open("wb") as fh:
+                    for chunk in response.iter_bytes():
+                        fh.write(chunk)
+        except (httpx.HTTPError, OSError):
+            raise
+        return destination
