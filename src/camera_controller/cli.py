@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from .cameras import UsbCanonCameraController, UsbCameraDiscovery
+from .cameras import CanonCameraController, NetworkCameraDiscovery, UsbCanonCameraController, UsbCameraDiscovery
 from .config import CameraControllerSettings
 
 
@@ -39,8 +39,6 @@ def main() -> int:
 
     if args.command == "discover":
         if args.transport == "network":
-            from .cameras import NetworkCameraDiscovery
-
             discovery = NetworkCameraDiscovery(settings)
             cameras = discovery.discover_cameras(timeout=args.timeout)
             if not cameras:
@@ -64,7 +62,7 @@ def main() -> int:
             print("A --camera identifier is required for session commands.")
             return 2
 
-        controller = UsbCanonCameraController(args.camera)
+        controller = UsbCanonCameraController(args.camera) if args.transport == "usb" else CanonCameraController(args.camera)
         if args.set_shutter:
             controller.connect()
             print(f"Set shutter: {controller.set_state(shutter_speed=args.set_shutter)}")
