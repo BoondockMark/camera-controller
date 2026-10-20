@@ -41,21 +41,31 @@ class UsbCameraDiscovery:
         except Exception:
             return []
 
-        discovered: list[UsbCameraDescriptor] = []
+        discovered: dict[tuple[str, str, str | None], UsbCameraDescriptor] = {}
         try:
             for device in usb.core.find(find_all=True):
                 if device.idVendor != self.CANON_VID:
                     continue
+
+                serial = getattr(device, "serial_number", None)
+                key = (
+                    f"{device.idVendor:04x}",
+                    f"{device.idProduct:04x}",
+                    serial or str(getattr(device, "bus", None)) + ":" + str(getattr(device, "address", None)),
+                )
+                if key in discovered:
+                    continue
+
                 descriptor = UsbCameraDescriptor(
                     camera_id=f"canon-usb-{device.idVendor:04x}-{device.idProduct:04x}",
                     manufacturer="Canon",
                     model=getattr(device, "product", None) or "Canon camera",
-                    serial_number=getattr(device, "serial_number", None),
+                    serial_number=serial,
                     device_path=str(getattr(device, "bus", None)) + ":" + str(getattr(device, "address", None)),
                     bus_id=str(getattr(device, "bus", None)),
                     transport="usb",
                 )
-                discovered.append(descriptor)
+                discovered[key] = descriptor
         except Exception:
             return []
-        return discovered
+        return list(discovered.values())
