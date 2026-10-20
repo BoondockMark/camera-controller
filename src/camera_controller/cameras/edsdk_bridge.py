@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 from dataclasses import dataclass
 from typing import Any
 
@@ -13,12 +14,19 @@ class CanonCameraHandle:
 
 
 class EDSDKBridge:
-    """Minimal SDK bridge for Canon EDSDK-backed USB control.
+    """Optional Canon EDSDK adapter.
 
-    This intentionally keeps the import and runtime detection conservative. If the Canon
-    SDK is not installed, the bridge simply reports unavailable and the higher-level app
-    continues without pretending to have live camera control.
+    This adapter intentionally does nothing unless the actual Canon SDK is installed.
+    When the SDK is absent, the higher-level app remains honest and fails safely.
     """
+
+    _IMPORT_CANDIDATES = (
+        "EdsSDKLib",
+        "canon",
+        "pycanon",
+        "canon_edsdk",
+        "canonedsdk",
+    )
 
     def __init__(self) -> None:
         self._sdk: Any | None = None
@@ -26,17 +34,16 @@ class EDSDKBridge:
         self._load_sdk()
 
     def _load_sdk(self) -> None:
-        try:
-            # Canon's real SDK uses a native library; the exact import path varies by SDK
-            # version and platform. Keep this placeholder intentionally non-destructive.
-            # Example patterns:
-            # import EdsSDKLib as edsdk
-            # from pycanon import Canon
-            self._sdk = None
-            self._available = False
-        except Exception:
-            self._sdk = None
-            self._available = False
+        for module_name in self._IMPORT_CANDIDATES:
+            try:
+                self._sdk = importlib.import_module(module_name)
+                self._available = True
+                return
+            except Exception:
+                continue
+
+        self._sdk = None
+        self._available = False
 
     @property
     def available(self) -> bool:
@@ -50,7 +57,7 @@ class EDSDKBridge:
     def open_camera(self, camera_id: str) -> Any | None:
         if not self._available or self._sdk is None:
             return None
-        return None
+        return {"camera_id": camera_id, "sdk": self._sdk}
 
     def close_camera(self, handle: Any) -> None:
         if not self._available or handle is None:
